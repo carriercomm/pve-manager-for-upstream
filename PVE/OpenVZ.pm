@@ -3,6 +3,7 @@ package PVE::OpenVZ;
 use strict;
 use LockFile::Simple;
 use File::stat qw();
+use Time::HiRes qw ( time );
 use POSIX qw (LONG_MAX);
 use IO::Dir;
 use IO::File;
@@ -70,10 +71,15 @@ sub check_mounted {
     return (-d "$root/etc" || -d "$root/proc");
 }
 
+sub have_ovz {
+	return -f '/proc/vz/vestat';
+}
+
 # warning: this is slow
 sub check_running {
     my ($vmid) = @_;
 
+    if (have_ovz()) {
     if (my $fh = new IO::File ("/proc/vz/vestat", "r")) {
 	while (defined (my $line = <$fh>)) {
 	    if ($line =~ m/^\s*(\d+)\s+/) {
@@ -85,6 +91,17 @@ sub check_running {
 	}
 	close($fh);
     }
+    	} else {
+    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/tasks", "r")) {
+	while (defined (my $line = <$fh>)) {
+	    if ($line =~ m/^\d+/) {
+		close($fh);
+		return 1;
+	    }
+	}
+	close($fh);
+    }
+    	}
     return undef;
 }
 
@@ -169,7 +186,8 @@ sub read_container_blkio_stat {
     my $read = 0;
     my $write = 0;
 
-    my $filename = "/proc/vz/beancounter/$vmid/blkio.io_service_bytes";
+    my $filename = "/proc/vz/beancounter/$vmid/blkio.io_service_bytes" if have_ovz;
+    $filename = "/sys/fs/cgroup/vz-$vmid/blkio.io_service_bytes" if have_ovz;
     if (my $fh = IO::File->new ($filename, "r")) {
        
 	while (defined (my $line = <$fh>)) {
@@ -276,6 +294,7 @@ sub vmstatus {
     # Note: OpenVZ does not use POSIX::_SC_CLK_TCK
     my $hz = 1000;
 
+    if (have_ovz()) {
     # see http://wiki.openvz.org/Vestat
     if (my $fh = new IO::File ("/proc/vz/vestat", "r")) {
 	while (defined (my $line = <$fh>)) {
@@ -315,6 +334,93 @@ sub vmstatus {
 	    }
 	}
 	close($fh);
+    }
+    } else {
+	foreach my $vmid (keys %$list) {
+		my $tasks = 0;
+
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/tasks", "r")) {
+		while (defined (my $line = <$fh>)) {
+		    if ($line =~ m/^(\d+)/) {
+		    	++$tasks;
+			}
+		}
+		close($fh);
+		}
+
+		next if $tasks eq 0;
+
+		my $d = $list->{$vmid};
+
+		my $creationTime = (stat("/sys/fs/cgroup/vz-$vmid"))[10];
+		my $currentTime = time();
+
+		$d->{status} = "running";
+		$d->{nproc} = $tasks;
+		$d->{uptime} = int($currentTime - $creationTime + 7200);
+
+		my $used = 0;
+
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/cpuacct.stat", "r")) {
+		while (defined (my $line = <$fh>)) {
+		    if ($line =~ m/^\S+\s+(\d+)/) {
+		    	$used += $1;
+			}
+		}
+
+		close($fh);
+		}
+
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.failcnt", "r")) {
+		while (defined (my $line = <$fh>)) {
+		    if ($line =~ m/^(\d+)/) {
+		    	$d->{failcnt} = $1;
+			}
+		}
+		close($fh);
+		}
+
+		my $mem = 0;
+
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.usage_in_bytes", "r")) {
+		while (defined (my $line = <$fh>)) {
+		    if ($line =~ m/^(\d+)/) {
+		    	$mem += $1;
+			}
+		}
+		close($fh);
+		}
+
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.kmem.usage_in_bytes", "r")) {
+		while (defined (my $line = <$fh>)) {
+		    if ($line =~ m/^(\d+)/) {
+		    	$mem += $1;
+			}
+		}
+		close($fh);
+		}
+
+		$d->{mem} = $mem;
+
+		my $sum = time;
+
+		if (!defined ($last_proc_vestat->{$vmid}) ||
+		    ($last_proc_vestat->{$vmid}->{sum} > $sum)) {
+		    $last_proc_vestat->{$vmid} = { used => 0, sum => 0, cpu => 0 };
+		}
+
+		my $diff = $sum - $last_proc_vestat->{$vmid}->{sum};
+
+		if ($diff > 1) { # don't update too often
+		    my $useddiff = $used - $last_proc_vestat->{$vmid}->{used};
+		    my $cpu = ($useddiff/$diff) / $d->{cpus} / 100;
+		    $last_proc_vestat->{$vmid}->{sum} = $sum;
+		    $last_proc_vestat->{$vmid}->{used} = $used;
+		    $last_proc_vestat->{$vmid}->{cpu} = $d->{cpu} = $cpu;
+		} else {
+		    $d->{cpu} = $last_proc_vestat->{$vmid}->{cpu};
+		}
+	}
     }
 
     foreach my $vmid (keys %$list) {
