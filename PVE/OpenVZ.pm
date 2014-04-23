@@ -352,12 +352,9 @@ sub vmstatus {
 
 		my $d = $list->{$vmid};
 
-		my $creationTime = (stat("/sys/fs/cgroup/vz-$vmid"))[10];
-		my $currentTime = time();
-
 		$d->{status} = "running";
 		$d->{nproc} = $tasks;
-		$d->{uptime} = int($currentTime - $creationTime + 7200);
+		$d->{uptime} = int(time() - (stat("/sys/fs/cgroup/vz-$vmid"))[10]);
 
 		my $used = 0;
 
