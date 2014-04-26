@@ -886,8 +886,8 @@ my $ovz_ressources = {
     features => 'string',
     ioprio => \&parse_integer,
 
-    local_gid => 'string',
-    local_uid => 'string'
+    local_gid => \&parse_integer,
+    local_uid => \&parse_integer
 
 };
 
