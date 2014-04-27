@@ -92,7 +92,7 @@ sub check_running {
 	close($fh);
     }
     	} else {
-    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/tasks", "r")) {
+    if (my $fh = new IO::File ("/sys/fs/cgroup/cpu/vz-$vmid/tasks", "r")) {
 	while (defined (my $line = <$fh>)) {
 	    if ($line =~ m/^\d+/) {
 		close($fh);
@@ -187,7 +187,7 @@ sub read_container_blkio_stat {
     my $write = 0;
 
     my $filename = "/proc/vz/beancounter/$vmid/blkio.io_service_bytes" if have_ovz;
-    $filename = "/sys/fs/cgroup/vz-$vmid/blkio.io_service_bytes" if have_ovz;
+    $filename = "/sys/fs/cgroup/blkio/vz-$vmid/blkio.io_service_bytes" if !have_ovz;
     if (my $fh = IO::File->new ($filename, "r")) {
        
 	while (defined (my $line = <$fh>)) {
@@ -339,7 +339,7 @@ sub vmstatus {
 	foreach my $vmid (keys %$list) {
 		my $tasks = 0;
 
-	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/tasks", "r")) {
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/cpu/vz-$vmid/tasks", "r")) {
 		while (defined (my $line = <$fh>)) {
 		    if ($line =~ m/^(\d+)/) {
 		    	++$tasks;
@@ -354,11 +354,11 @@ sub vmstatus {
 
 		$d->{status} = "running";
 		$d->{nproc} = $tasks;
-		$d->{uptime} = int(time() - (stat("/sys/fs/cgroup/vz-$vmid"))[10]);
+		$d->{uptime} = int(time() - (stat("/sys/fs/cgroup/cpu/vz-$vmid"))[10]);
 
 		my $used = 0;
 
-	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/cpuacct.stat", "r")) {
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/cpu/vz-$vmid/cpuacct.stat", "r")) {
 		while (defined (my $line = <$fh>)) {
 		    if ($line =~ m/^\S+\s+(\d+)/) {
 		    	$used += $1;
@@ -368,7 +368,7 @@ sub vmstatus {
 		close($fh);
 		}
 
-	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.failcnt", "r")) {
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/memory/vz-$vmid/memory.failcnt", "r")) {
 		while (defined (my $line = <$fh>)) {
 		    if ($line =~ m/^(\d+)/) {
 		    	$d->{failcnt} = $1;
@@ -379,7 +379,7 @@ sub vmstatus {
 
 		my $mem = 0;
 
-	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.usage_in_bytes", "r")) {
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/memory/vz-$vmid/memory.usage_in_bytes", "r")) {
 		while (defined (my $line = <$fh>)) {
 		    if ($line =~ m/^(\d+)/) {
 		    	$mem += $1;
@@ -388,7 +388,7 @@ sub vmstatus {
 		close($fh);
 		}
 
-	    if (my $fh = new IO::File ("/sys/fs/cgroup/vz-$vmid/memory.kmem.usage_in_bytes", "r")) {
+	    if (my $fh = new IO::File ("/sys/fs/cgroup/memory/vz-$vmid/memory.kmem.usage_in_bytes", "r")) {
 		while (defined (my $line = <$fh>)) {
 		    if ($line =~ m/^(\d+)/) {
 		    	$mem += $1;
